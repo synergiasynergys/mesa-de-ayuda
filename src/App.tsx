@@ -501,11 +501,11 @@ export default function App() {
               </div>
             </div>
           )}
+          {view === "usuarios" && (
+            <UsuariosPanel users={users} onRefresh={loadAll} />
+          )}
         </div>
       </div>
     </div>
   );
 }
-{view === "usuarios" && (
-  <UsuariosPanel users={users} onRefresh={loadAll} />
-)}
