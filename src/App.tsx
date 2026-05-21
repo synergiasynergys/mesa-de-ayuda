@@ -14,7 +14,6 @@ const ROLES: Record<Role, string> = { admin: "Administrador", tech: "Técnico", 
 const CATEGORIES = ["Hardware", "Software", "Red / Conectividad", "Accesos y Permisos", "Impresoras", "Otro"];
 const PRIORITIES: Priority[] = ["Baja", "Media", "Alta", "Crítica"];
 const STATUSES: Status[] = ["Abierto", "En progreso", "Resuelto", "Cerrado"];
-
 const priorityColor: Record<Priority, string> = { Baja: "#1D9E75", Media: "#BA7517", Alta: "#D85A30", Crítica: "#A32D2D" };
 const statusColor: Record<Status, string> = { Abierto: "#378ADD", "En progreso": "#BA7517", Resuelto: "#1D9E75", Cerrado: "#888780" };
 const statusBg: Record<Status, string> = { Abierto: "#E6F1FB", "En progreso": "#FAEEDA", Resuelto: "#E1F5EE", Cerrado: "#F1EFE8" };
@@ -40,12 +39,9 @@ function LoginScreen() {
     if (!email.trim()) return;
     setLoading(true);
     setError("");
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-    if (error) {
-      setError("No encontramos ese email en el sistema. Consultá con soporte.");
-    } else {
-      setSent(true);
-    }
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
+    if (error) { setError("No se pudo enviar el link. Verificá el email."); }
+    else { setSent(true); }
     setLoading(false);
   };
 
@@ -54,38 +50,142 @@ function LoginScreen() {
       <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #eee", padding: 40, width: 360, textAlign: "center" }}>
         <div style={{ fontSize: 32, marginBottom: 8 }}>🎫</div>
         <h1 style={{ fontSize: 20, fontWeight: 500, margin: "0 0 4px" }}>Mesa de Ayuda</h1>
-        <p style={{ fontSize: 13, color: "#888", margin: "0 0 28px" }}>La Defensoría del Pueblo</p>
+        <p style={{ fontSize: 13, color: "#888", margin: "0 0 24px" }}>La Defe</p>
         {!sent ? (
           <>
-            <p style={{ fontSize: 14, color: "#555", margin: "0 0 16px" }}>Ingresá tu email institucional para recibir un link de acceso</p>
-            <input
-              type="email"
-              placeholder="tu.nombre@ladefe.gob.ar"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+            <p style={{ fontSize: 14, color: "#555", margin: "0 0 16px" }}>Ingresá tu email institucional para recibir un link de acceso.</p>
+            <input type="email" placeholder="tu@ladefe.gob.ar" value={email} onChange={e => setEmail(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleLogin()}
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 6, border: "1px solid #ddd", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
-            />
-            {error && <p style={{ fontSize: 13, color: "#A32D2D", background: "#FCEBEB", padding: "8px 12px", borderRadius: 6, margin: "0 0 12px" }}>{error}</p>}
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              style={{ width: "100%", background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "10px", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+              style={{ width: "100%", marginBottom: 12, padding: 10, borderRadius: 6, border: "1px solid #ddd", fontSize: 14, boxSizing: "border-box" }} />
+            {error && <p style={{ color: "#A32D2D", fontSize: 13, margin: "0 0 12px" }}>{error}</p>}
+            <button onClick={handleLogin} disabled={loading}
+              style={{ width: "100%", background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "10px 0", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
               {loading ? "Enviando..." : "Enviar link de acceso"}
             </button>
           </>
         ) : (
           <div style={{ background: "#E1F5EE", borderRadius: 8, padding: 20 }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>📬</div>
-            <p style={{ fontSize: 14, color: "#085041", margin: 0 }}>Te enviamos un link a <strong>{email}</strong>. Revisá tu bandeja de entrada y hacé clic en el link para ingresar.</p>
-            <button onClick={() => setSent(false)} style={{ marginTop: 16, background: "transparent", border: "none", color: "#185FA5", cursor: "pointer", fontSize: 13 }}>← Volver</button>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>📧</div>
+            <p style={{ fontSize: 14, color: "#085041", margin: 0 }}>Revisá tu email <strong>{email}</strong>. Te enviamos un link para ingresar.</p>
+            <button onClick={() => setSent(false)} style={{ marginTop: 16, background: "transparent", border: "none", color: "#185FA5", cursor: "pointer", fontSize: 13 }}>Usar otro email</button>
           </div>
         )}
       </div>
     </div>
   );
 }
+function UsuariosPanel({ users, onRefresh }: { users: User[]; onRefresh: () => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editUser, setEditUser] = useState<User | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", role: "user" as Role, avatar: "" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
+  const openNew = () => { setForm({ name: "", email: "", role: "user", avatar: "" }); setEditUser(null); setError(""); setShowForm(true); };
+  const openEdit = (u: User) => { setForm({ name: u.name, email: u.email, role: u.role, avatar: u.avatar }); setEditUser(u); setError(""); setShowForm(true); };
+
+  const getInitials = (name: string) => name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.email.trim()) { setError("Nombre y email son obligatorios."); return; }
+    setLoading(true);
+    const avatar = form.avatar.trim() || getInitials(form.name);
+    if (editUser) {
+      await supabase.from("users").update({ name: form.name, email: form.email, role: form.role, avatar }).eq("id", editUser.id);
+    } else {
+      await supabase.from("users").insert([{ name: form.name, email: form.email, role: form.role, avatar }]);
+    }
+    setShowForm(false);
+    setLoading(false);
+    onRefresh();
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("¿Seguro que querés eliminar este usuario?")) return;
+    await supabase.from("users").delete().eq("id", id);
+    onRefresh();
+  };
+
+  const roleLabel: Record<Role, string> = { admin: "Administrador", tech: "Técnico", user: "Empleado" };
+  const roleBg: Record<Role, string> = { admin: "#E6F1FB", tech: "#E1F5EE", user: "#F1EFE8" };
+  const roleColor: Record<Role, string> = { admin: "#0C447C", tech: "#085041", user: "#444441" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 500, margin: 0 }}>Usuarios</h2>
+        <button onClick={openNew} style={{ background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>+ Nuevo usuario</button>
+      </div>
+
+      {showForm && (
+        <div style={{ background: "#f8f8f8", border: "1px solid #eee", borderRadius: 8, padding: 16, marginBottom: 16 }}>
+          <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>{editUser ? "Editar usuario" : "Nuevo usuario"}</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, color: "#888" }}>Nombre completo *</label>
+              <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value, avatar: getInitials(e.target.value) })}
+                placeholder="Ej: Juan Pérez" style={{ display: "block", width: "100%", marginTop: 4, padding: 8, borderRadius: 6, border: "1px solid #ddd", fontSize: 14, boxSizing: "border-box" as const }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: "#888" }}>Email institucional *</label>
+              <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })}
+                placeholder="juan.perez@ladefe.gob.ar" style={{ display: "block", width: "100%", marginTop: 4, padding: 8, borderRadius: 6, border: "1px solid #ddd", fontSize: 14, boxSizing: "border-box" as const }} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 12, color: "#888" }}>Rol</label>
+            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as Role })}
+              style={{ display: "block", marginTop: 4, fontSize: 13, padding: "6px 8px", borderRadius: 4, border: "1px solid #ddd", width: 200 }}>
+              <option value="user">Empleado</option>
+              <option value="tech">Técnico de Soporte</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+          {error && <p style={{ color: "#A32D2D", fontSize: 13, margin: "0 0 10px" }}>{error}</p>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={handleSave} disabled={loading} style={{ background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontSize: 13 }}>
+              {loading ? "Guardando..." : "Guardar"}
+            </button>
+            <button onClick={() => setShowForm(false)} style={{ background: "transparent", border: "1px solid #ccc", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+          <thead>
+            <tr style={{ background: "#f8f8f8", borderBottom: "1px solid #eee" }}>
+              <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, fontSize: 13, color: "#888" }}>Usuario</th>
+              <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, fontSize: 13, color: "#888" }}>Email</th>
+              <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500, fontSize: 13, color: "#888" }}>Rol</th>
+              <th style={{ padding: "10px 16px", textAlign: "right", fontWeight: 500, fontSize: 13, color: "#888" }}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u, i) => (
+              <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? "1px solid #f0f0f0" : "none" }}>
+                <td style={{ padding: "10px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <Avatar initials={u.avatar} size={32} />
+                    <span style={{ fontWeight: 500 }}>{u.name}</span>
+                  </div>
+                </td>
+                <td style={{ padding: "10px 16px", color: "#555", fontSize: 13 }}>{u.email}</td>
+                <td style={{ padding: "10px 16px" }}>
+                  <span style={{ background: roleBg[u.role], color: roleColor[u.role], fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4 }}>{roleLabel[u.role]}</span>
+                </td>
+                <td style={{ padding: "10px 16px", textAlign: "right" }}>
+                  <button onClick={() => openEdit(u)} style={{ background: "transparent", border: "1px solid #ddd", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 12, marginRight: 6 }}>Editar</button>
+                  <button onClick={() => handleDelete(u.id)} style={{ background: "transparent", border: "1px solid #f5c1c1", color: "#A32D2D", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>Eliminar</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -103,14 +203,10 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
-    return () => subscription.unsubscribe();
+    supabase.auth.onAuthStateChange((_event, session) => setSession(session));
   }, []);
 
-  useEffect(() => {
-    if (session) loadAll();
-    else setLoading(false);
-  }, [session]);
+  useEffect(() => { if (session) loadAll(); else setLoading(false); }, [session]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -123,8 +219,10 @@ export default function App() {
     setUsers(allUsers);
     setTickets((t as Ticket[]) || []);
     setHistory((h as HistoryEntry[]) || []);
-    const loggedUser = allUsers.find(usr => usr.email === session?.user?.email);
-    setCurrentUser(loggedUser || allUsers[0]);
+    if (session?.user?.email) {
+      const matched = allUsers.find(u => u.email === session.user.email);
+      setCurrentUser(matched || null);
+    }
     setLoading(false);
   };
 
@@ -172,15 +270,20 @@ export default function App() {
     await loadAll();
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setCurrentUser(null);
-    setView("dashboard");
-    setSelectedTicket(null);
-  };
+  const handleLogout = async () => { await supabase.auth.signOut(); setCurrentUser(null); setView("dashboard"); };
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Cargando...</div>;
   if (!session) return <LoginScreen />;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Cargando...</div>;
+  if (!currentUser) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f7fa" }}>
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #eee", padding: 40, textAlign: "center", maxWidth: 360 }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+        <h2 style={{ fontSize: 16, fontWeight: 500, margin: "0 0 8px" }}>Email no registrado</h2>
+        <p style={{ fontSize: 13, color: "#888", margin: "0 0 20px" }}>Tu email no tiene acceso al sistema. Contactá al administrador.</p>
+        <button onClick={handleLogout} style={{ background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "8px 20px", cursor: "pointer", fontSize: 13 }}>Cerrar sesión</button>
+      </div>
+    </div>
+  );
 
   const sel = selectedTicket ? tickets.find(t => t.id === selectedTicket.id) : null;
   const navStyle = (v: string) => ({ padding: "8px 14px", background: view === v ? "#E6F1FB" : "transparent", color: view === v ? "#0C447C" : "#555", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: view === v ? 500 : 400, fontSize: 14, display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left" as const });
@@ -190,8 +293,8 @@ export default function App() {
       <div style={{ background: "#185FA5", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52 }}>
         <span style={{ color: "#fff", fontWeight: 500, fontSize: 16 }}>🎫 Mesa de Ayuda</span>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ color: "#B5D4F4", fontSize: 13 }}>{currentUser?.name}</span>
-          <button onClick={handleLogout} style={{ background: "transparent", border: "1px solid #378ADD", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>Salir</button>
+          <span style={{ color: "#B5D4F4", fontSize: 13 }}>{currentUser.name}</span>
+          <button onClick={handleLogout} style={{ background: "transparent", border: "1px solid #378ADD", color: "#fff", borderRadius: 4, padding: "3px 10px", cursor: "pointer", fontSize: 12 }}>Salir</button>
         </div>
       </div>
 
@@ -199,16 +302,16 @@ export default function App() {
         <div style={{ width: 190, borderRight: "1px solid #eee", padding: "16px 10px", display: "flex", flexDirection: "column", gap: 4, background: "#fafafa" }}>
           <button style={navStyle("dashboard")} onClick={() => { setView("dashboard"); setSelectedTicket(null); }}>📊 Dashboard</button>
           <button style={navStyle("tickets")} onClick={() => { setView("tickets"); setSelectedTicket(null); }}>🎫 Tickets</button>
-          {currentUser?.role === "admin" && <button style={navStyle("reportes")} onClick={() => { setView("reportes"); setSelectedTicket(null); }}>📈 Reportes</button>}
+          {currentUser.role === "admin" && <button style={navStyle("reportes")} onClick={() => { setView("reportes"); setSelectedTicket(null); }}>📈 Reportes</button>}
+          {currentUser.role === "admin" && <button style={navStyle("usuarios")} onClick={() => { setView("usuarios"); setSelectedTicket(null); }}>👥 Usuarios</button>}
           <div style={{ marginTop: "auto", padding: "10px 6px", borderTop: "1px solid #eee" }}>
-            <Avatar initials={currentUser?.avatar || ""} size={28} />
-            <div style={{ fontSize: 12, marginTop: 6, color: "#666" }}>{currentUser?.name}</div>
-            <div style={{ fontSize: 11, color: "#378ADD" }}>{currentUser ? ROLES[currentUser.role] : ""}</div>
+            <Avatar initials={currentUser.avatar} size={28} />
+            <div style={{ fontSize: 12, marginTop: 6, color: "#666" }}>{currentUser.name}</div>
+            <div style={{ fontSize: 11, color: "#378ADD" }}>{ROLES[currentUser.role]}</div>
           </div>
         </div>
 
         <div style={{ flex: 1, padding: 20, overflowY: "auto", background: "#fff" }}>
-
           {view === "dashboard" && !selectedTicket && (
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 16px" }}>Dashboard</h2>
@@ -242,18 +345,16 @@ export default function App() {
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <h2 style={{ fontSize: 18, fontWeight: 500, margin: 0 }}>Tickets</h2>
-                {(currentUser?.role === "user" || currentUser?.role === "admin") && (
+                {(currentUser.role === "user" || currentUser.role === "admin") && (
                   <button onClick={() => setShowNewForm(true)} style={{ background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "7px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>+ Nuevo ticket</button>
                 )}
               </div>
               <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
                 <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>
-                  <option>Todos</option>
-                  {STATUSES.map(s => <option key={s}>{s}</option>)}
+                  <option>Todos</option>{STATUSES.map(s => <option key={s}>{s}</option>)}
                 </select>
                 <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>
-                  <option>Todos</option>
-                  {PRIORITIES.map(p => <option key={p}>{p}</option>)}
+                  <option>Todos</option>{PRIORITIES.map(p => <option key={p}>{p}</option>)}
                 </select>
               </div>
               {showNewForm && (
@@ -262,12 +363,8 @@ export default function App() {
                   <input placeholder="Título del problema *" value={newTicket.title} onChange={e => setNewTicket({ ...newTicket, title: e.target.value })} style={{ width: "100%", marginBottom: 8, padding: 8, borderRadius: 6, border: "1px solid #ddd", fontSize: 14, boxSizing: "border-box" }} />
                   <textarea placeholder="Descripción detallada" value={newTicket.desc} onChange={e => setNewTicket({ ...newTicket, desc: e.target.value })} style={{ width: "100%", height: 60, marginBottom: 8, resize: "vertical", padding: 8, borderRadius: 6, border: "1px solid #ddd", fontSize: 14, fontFamily: "system-ui", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                    <select value={newTicket.category} onChange={e => setNewTicket({ ...newTicket, category: e.target.value })} style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>
-                      {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                    </select>
-                    <select value={newTicket.priority} onChange={e => setNewTicket({ ...newTicket, priority: e.target.value as Priority })} style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>
-                      {PRIORITIES.map(p => <option key={p}>{p}</option>)}
-                    </select>
+                    <select value={newTicket.category} onChange={e => setNewTicket({ ...newTicket, category: e.target.value })} style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select>
+                    <select value={newTicket.priority} onChange={e => setNewTicket({ ...newTicket, priority: e.target.value as Priority })} style={{ flex: 1, fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button onClick={handleCreateTicket} style={{ background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", cursor: "pointer", fontSize: 13 }}>Crear ticket</button>
@@ -286,8 +383,7 @@ export default function App() {
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <span style={{ fontWeight: 500, fontSize: 14 }}>#{t.id} {t.title}</span>
-                          <StatusBadge status={t.status} />
-                          <PriorityBadge priority={t.priority} />
+                          <StatusBadge status={t.status} /><PriorityBadge priority={t.priority} />
                         </div>
                         <div style={{ fontSize: 12, color: "#888", marginTop: 3 }}>
                           {t.category} · Creado por {creator?.name} · {t.created_at}
@@ -311,13 +407,12 @@ export default function App() {
                 </div>
                 <p style={{ fontSize: 14, color: "#666", margin: "0 0 14px" }}>{sel.description}</p>
                 <div style={{ display: "flex", gap: 16, fontSize: 13, color: "#888", flexWrap: "wrap" }}>
-                  <span>📁 {sel.category}</span>
-                  <span>📅 {sel.created_at}</span>
+                  <span>📁 {sel.category}</span><span>📅 {sel.created_at}</span>
                   <span>👤 {users.find(u => u.id === sel.created_by)?.name}</span>
                   <span>🔧 {users.find(u => u.id === sel.assigned_to)?.name || "Sin asignar"}</span>
                 </div>
               </div>
-              {(currentUser?.role === "admin" || currentUser?.role === "tech") && (
+              {(currentUser.role === "admin" || currentUser.role === "tech") && (
                 <div style={{ background: "#f8f8f8", border: "1px solid #eee", borderRadius: 8, padding: 14, marginBottom: 16 }}>
                   <h3 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 500 }}>Acciones</h3>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -327,7 +422,7 @@ export default function App() {
                         {STATUSES.map(s => <option key={s}>{s}</option>)}
                       </select>
                     </div>
-                    {currentUser?.role === "admin" && (
+                    {currentUser.role === "admin" && (
                       <div>
                         <label style={{ fontSize: 12, color: "#888" }}>Asignar a</label>
                         <select value={sel.assigned_to ?? ""} onChange={e => { const uid = e.target.value ? parseInt(e.target.value) : null; const name = uid ? users.find(u => u.id === uid)?.name : "Sin asignar"; updateTicket(sel.id, { assigned_to: uid }, `Asignado a ${name}`); }} style={{ display: "block", marginTop: 4, fontSize: 13, padding: "4px 8px", borderRadius: 4, border: "1px solid #ddd" }}>
@@ -411,3 +506,6 @@ export default function App() {
     </div>
   );
 }
+{view === "usuarios" && (
+  <UsuariosPanel users={users} onRefresh={loadAll} />
+)}
