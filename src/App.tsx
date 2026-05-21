@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabaseClient";
+import type { Session } from "@supabase/supabase-js";
 
 type Role = "admin" | "tech" | "user";
 type Priority = "Baja" | "Media" | "Alta" | "Crítica";
 type Status = "Abierto" | "En progreso" | "Resuelto" | "Cerrado";
 
-interface User { id: number; name: string; role: Role; avatar: string; }
+interface User { id: number; name: string; role: Role; avatar: string; email: string; }
 interface Ticket { id: number; title: string; description: string; category: string; priority: Priority; status: Status; created_by: number; assigned_to: number | null; created_at: string; }
 interface HistoryEntry { id: number; ticket_id: number; user_name: string; action: string; created_at: string; }
 
@@ -23,15 +24,70 @@ const priorityBg: Record<Priority, string> = { Baja: "#E1F5EE", Media: "#FAEEDA"
 const Avatar = ({ initials, size = 32 }: { initials: string; size?: number }) => (
   <div style={{ width: size, height: size, borderRadius: "50%", background: "#E6F1FB", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: size * 0.35, color: "#185FA5", flexShrink: 0 }}>{initials}</div>
 );
-
 const Badge = ({ label, bg, color }: { label: string; bg: string; color: string }) => (
   <span style={{ background: bg, color, fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4, whiteSpace: "nowrap" }}>{label}</span>
 );
-
 const StatusBadge = ({ status }: { status: Status }) => <Badge label={status} bg={statusBg[status]} color={statusText[status]} />;
 const PriorityBadge = ({ priority }: { priority: Priority }) => <Badge label={priority} bg={priorityBg[priority]} color={priorityColor[priority]} />;
 
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleLogin = async () => {
+    if (!email.trim()) return;
+    setLoading(true);
+    setError("");
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+    if (error) {
+      setError("No encontramos ese email en el sistema. Consultá con soporte.");
+    } else {
+      setSent(true);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f7fa" }}>
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #eee", padding: 40, width: 360, textAlign: "center" }}>
+        <div style={{ fontSize: 32, marginBottom: 8 }}>🎫</div>
+        <h1 style={{ fontSize: 20, fontWeight: 500, margin: "0 0 4px" }}>Mesa de Ayuda</h1>
+        <p style={{ fontSize: 13, color: "#888", margin: "0 0 28px" }}>La Defensoría del Pueblo</p>
+        {!sent ? (
+          <>
+            <p style={{ fontSize: 14, color: "#555", margin: "0 0 16px" }}>Ingresá tu email institucional para recibir un link de acceso</p>
+            <input
+              type="email"
+              placeholder="tu.nombre@ladefe.gob.ar"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 6, border: "1px solid #ddd", fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
+            />
+            {error && <p style={{ fontSize: 13, color: "#A32D2D", background: "#FCEBEB", padding: "8px 12px", borderRadius: 6, margin: "0 0 12px" }}>{error}</p>}
+            <button
+              onClick={handleLogin}
+              disabled={loading}
+              style={{ width: "100%", background: "#185FA5", color: "#fff", border: "none", borderRadius: 6, padding: "10px", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>
+              {loading ? "Enviando..." : "Enviar link de acceso"}
+            </button>
+          </>
+        ) : (
+          <div style={{ background: "#E1F5EE", borderRadius: 8, padding: 20 }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>📬</div>
+            <p style={{ fontSize: 14, color: "#085041", margin: 0 }}>Te enviamos un link a <strong>{email}</strong>. Revisá tu bandeja de entrada y hacé clic en el link para ingresar.</p>
+            <button onClick={() => setSent(false)} style={{ marginTop: 16, background: "transparent", border: "none", color: "#185FA5", cursor: "pointer", fontSize: 13 }}>← Volver</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -45,7 +101,16 @@ export default function App() {
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session) loadAll();
+    else setLoading(false);
+  }, [session]);
 
   const loadAll = async () => {
     setLoading(true);
@@ -54,10 +119,12 @@ export default function App() {
       supabase.from("tickets").select("*").order("id", { ascending: false }),
       supabase.from("ticket_history").select("*").order("created_at"),
     ]);
-    setUsers((u as User[]) || []);
+    const allUsers = (u as User[]) || [];
+    setUsers(allUsers);
     setTickets((t as Ticket[]) || []);
     setHistory((h as HistoryEntry[]) || []);
-    if (u && u.length > 0) setCurrentUser((u as User[])[0]);
+    const loggedUser = allUsers.find(usr => usr.email === session?.user?.email);
+    setCurrentUser(loggedUser || allUsers[0]);
     setLoading(false);
   };
 
@@ -105,21 +172,26 @@ export default function App() {
     await loadAll();
   };
 
-  const sel = selectedTicket ? tickets.find(t => t.id === selectedTicket.id) : null;
-  const navStyle = (v: string) => ({ padding: "8px 14px", background: view === v ? "#E6F1FB" : "transparent", color: view === v ? "#0C447C" : "#555", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: view === v ? 500 : 400, fontSize: 14, display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left" as const });
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+    setView("dashboard");
+    setSelectedTicket(null);
+  };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#888" }}>Cargando...</div>;
+  if (!session) return <LoginScreen />;
+
+  const sel = selectedTicket ? tickets.find(t => t.id === selectedTicket.id) : null;
+  const navStyle = (v: string) => ({ padding: "8px 14px", background: view === v ? "#E6F1FB" : "transparent", color: view === v ? "#0C447C" : "#555", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: view === v ? 500 : 400, fontSize: 14, display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left" as const });
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif", color: "#222", minHeight: "100vh" }}>
       <div style={{ background: "#185FA5", padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52 }}>
         <span style={{ color: "#fff", fontWeight: 500, fontSize: 16 }}>🎫 Mesa de Ayuda</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "#B5D4F4", fontSize: 12 }}>Usuario:</span>
-          <select value={currentUser?.id} onChange={e => { setCurrentUser(users.find(u => u.id === parseInt(e.target.value)) || null); setView("dashboard"); setSelectedTicket(null); }}
-            style={{ background: "#0C447C", color: "#fff", border: "1px solid #378ADD", borderRadius: 4, padding: "3px 6px", fontSize: 13, cursor: "pointer" }}>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name} ({ROLES[u.role]})</option>)}
-          </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ color: "#B5D4F4", fontSize: 13 }}>{currentUser?.name}</span>
+          <button onClick={handleLogout} style={{ background: "transparent", border: "1px solid #378ADD", color: "#fff", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>Salir</button>
         </div>
       </div>
 
